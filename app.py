@@ -2,7 +2,6 @@ import streamlit as st
 import ee
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import plotly.express as px
 import urllib.request
 import tempfile
@@ -10,40 +9,70 @@ from PIL import Image as PILImage, ImageDraw
 import math
 import os
 
-st.set_page_config(page_title="NDVI Time Series & GIF Generator", layout="wide")
+# ==============================================================
+# Streamlit App Config
+# ==============================================================
+st.set_page_config(
+    page_title="🌿 NDVI Time Series & GIF Generator",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+st.title("🌿 NDVI Time Series & Annual GIF Generator")
 
 # ==============================================================
-# 1. Initialize Earth Engine
+# 1. GEE Authentication (Interactive)
 # ==============================================================
-try:
-    ee.Initialize()
-    st.sidebar.success("✅ Google Earth Engine initialized.")
-except Exception:
-    st.sidebar.warning("🔐 Authentication required.")
-    ee.Authenticate()
-    ee.Initialize()
+def gee_authenticate_interactively():
+    """Interactive authentication flow for Earth Engine."""
+    st.warning("🔐 Earth Engine not initialized yet.")
+
+    # Generate the authorization URL
+    auth_url = ee.Authenticate(auth_mode='notebook', quiet=True)
+    if auth_url:
+        st.markdown(f"[👉 Click here to authenticate with Google Earth Engine]({auth_url})", unsafe_allow_html=True)
+        auth_code = st.text_input("Paste the authentication code here:")
+        if auth_code:
+            try:
+                ee.Initialize(auth_code=auth_code)
+                st.success("✅ Earth Engine successfully initialized!")
+                st.session_state['gee_initialized'] = True
+                return True
+            except Exception as e:
+                st.error(f"Authentication failed: {e}")
+                return False
+    return False
+
+# Try to initialize silently first
+if 'gee_initialized' not in st.session_state:
+    try:
+        ee.Initialize()
+        st.sidebar.success("✅ Google Earth Engine initialized.")
+        st.session_state['gee_initialized'] = True
+    except Exception:
+        st.session_state['gee_initialized'] = False
+
+if not st.session_state['gee_initialized']:
+    success = gee_authenticate_interactively()
+    if not success:
+        st.stop()
 
 # ==============================================================
-# 2. Sidebar inputs
+# 2. Sidebar Inputs
 # ==============================================================
-st.sidebar.header("Configuration")
-
-start_year = st.sidebar.number_input("Start year", 2015, 2025, 2015)
-end_year = st.sidebar.number_input("End year", start_year, 2025, 2024)
+st.sidebar.header("⚙️ Configuration")
+start_year = st.sidebar.number_input("Start Year", 2015, 2025, 2015)
+end_year = st.sidebar.number_input("End Year", start_year, 2025, 2024)
 radius = st.sidebar.slider("Radius (m)", 200, 2000, 800, 100)
 dimension = st.sidebar.slider("GIF dimension (px)", 100, 500, 250, 50)
 
-st.title("🌿 NDVI Time Series & Annual GIF Generator")
-
+# ==============================================================
+# 3. Upload CSV
+# ==============================================================
 st.write("""
 Upload a CSV file with columns:
 `name`, `latitude`, `longitude`, `description`
 """)
-
-# ==============================================================
-# 3. File upload
-# ==============================================================
-uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+uploaded_file = st.file_uploader("📂 Upload CSV", type=["csv"])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
@@ -55,9 +84,8 @@ if uploaded_file:
         locations.append({"name": name, "geometry": point})
 
     # ==============================================================
-    # 4. Helper functions
+    # 4. Helper Functions
     # ==============================================================
-
     def mask_clouds(image):
         qa = image.select("QA_PIXEL")
         mask = qa.bitwiseAnd(1 << 3).eq(0).And(qa.bitwiseAnd(1 << 4).eq(0))
@@ -164,11 +192,11 @@ if uploaded_file:
         return output_file
 
     # ==============================================================
-    # 5. Process button
+    # 5. Run button
     # ==============================================================
-    if st.button("Run NDVI Analysis"):
+    if st.button("🚀 Run NDVI Analysis"):
         results = []
-        with st.spinner("Processing NDVI data... this may take a few minutes ⏳"):
+        with st.spinner("Processing NDVI data... this may take several minutes ⏳"):
             for loc in locations:
                 st.write(f"📍 Processing {loc['name']}...")
                 df_loc = get_ndvi_time_series(loc["geometry"], loc["name"])
@@ -178,13 +206,13 @@ if uploaded_file:
             ndvi_all.to_csv(csv_path, index=False)
             st.success("✅ NDVI data collected successfully!")
 
-            # Plot time series
+            # --- Plot NDVI time series
             fig = px.line(ndvi_all, x="date", y="NDVI", color="region",
                           title="NDVI Time Series per Location")
             st.plotly_chart(fig, use_container_width=True)
             st.download_button("⬇️ Download NDVI CSV", open(csv_path, "rb"), "ndvi_timeseries.csv")
 
-            # Generate GIFs
+            # --- Generate GIFs
             st.write("🌀 Generating annual NDVI GIFs...")
             for loc in locations:
                 gif_file, frame_years = generate_and_save_gif(loc["geometry"], loc["name"])
