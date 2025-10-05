@@ -20,41 +20,60 @@ st.set_page_config(
 st.title("🌿 NDVI Time Series & Annual GIF Generator")
 
 # ==============================================================
-# 1. GEE Authentication (Interactive)
+# 1. Google Earth Engine Authentication (Streamlit-friendly)
 # ==============================================================
-def gee_authenticate_interactively():
-    """Interactive authentication flow for Earth Engine."""
-    st.warning("🔐 Earth Engine not initialized yet.")
 
-    # Generate the authorization URL
-    auth_url = ee.Authenticate(auth_mode='notebook', quiet=True)
-    if auth_url:
-        st.markdown(f"[👉 Click here to authenticate with Google Earth Engine]({auth_url})", unsafe_allow_html=True)
-        auth_code = st.text_input("Paste the authentication code here:")
+def gee_authenticate_interactively():
+    """
+    Manual authentication flow for Earth Engine inside Streamlit.
+    Opens a Go-link and provides a text box for pasting the code.
+    """
+    from google.auth.transport.requests import Request
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    import ee
+
+    st.warning("🔐 Earth Engine requires authentication. Please sign in below:")
+
+    # Generate manual authentication URL
+    try:
+        auth_url = ee.oauth.get_authorization_url()
+        st.markdown(
+            f"👉 **[Click here to open the Google Authentication page]({auth_url})**",
+            unsafe_allow_html=True
+        )
+        st.info("After you sign in, copy the code and paste it below 👇")
+        auth_code = st.text_input("🔑 Paste the authentication code here:")
+
         if auth_code:
             try:
-                ee.Initialize(auth_code=auth_code)
-                st.success("✅ Earth Engine successfully initialized!")
+                ee.oauth.get_access_token(auth_code)
+                ee.Initialize()
+                st.success("✅ Google Earth Engine successfully initialized!")
                 st.session_state['gee_initialized'] = True
                 return True
             except Exception as e:
-                st.error(f"Authentication failed: {e}")
+                st.error(f"❌ Authentication failed: {e}")
                 return False
+    except Exception as e:
+        st.error(f"⚠️ Could not generate authentication URL: {e}")
     return False
 
-# Try to initialize silently first
+
+# Try automatic initialization first
 if 'gee_initialized' not in st.session_state:
     try:
         ee.Initialize()
-        st.sidebar.success("✅ Google Earth Engine initialized.")
         st.session_state['gee_initialized'] = True
+        st.sidebar.success("✅ GEE already initialized.")
     except Exception:
         st.session_state['gee_initialized'] = False
 
+# If not yet authenticated, run interactive flow
 if not st.session_state['gee_initialized']:
     success = gee_authenticate_interactively()
     if not success:
         st.stop()
+
 
 # ==============================================================
 # 2. Sidebar Inputs
